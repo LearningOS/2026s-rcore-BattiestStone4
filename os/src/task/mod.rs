@@ -23,6 +23,8 @@ pub use task::{TaskControlBlock, TaskStatus};
 
 pub use context::TaskContext;
 
+const MAX_SYSCALL_NUM: usize = 500;
+
 /// The task manager, where all the tasks are managed.
 ///
 /// Functions implemented on `TaskManager` deals with all task state transitions
@@ -43,6 +45,8 @@ pub struct TaskManager {
 pub struct TaskManagerInner {
     /// task list
     tasks: [TaskControlBlock; MAX_APP_NUM],
+    /// syscall call times for each task
+    syscall_times: [[usize; MAX_SYSCALL_NUM]; MAX_APP_NUM],
     /// id of current `Running` task
     current_task: usize,
 }
@@ -64,6 +68,7 @@ lazy_static! {
             inner: unsafe {
                 UPSafeCell::new(TaskManagerInner {
                     tasks,
+                    syscall_times: [[0; MAX_SYSCALL_NUM]; MAX_APP_NUM],
                     current_task: 0,
                 })
             },
@@ -135,6 +140,24 @@ impl TaskManager {
             panic!("All applications completed!");
         }
     }
+
+    fn record_current_syscall(&self, syscall_id: usize) {
+        if syscall_id >= MAX_SYSCALL_NUM {
+            return;
+        }
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.syscall_times[current][syscall_id] += 1;
+    }
+
+    fn get_current_syscall_times(&self, syscall_id: usize) -> usize {
+        if syscall_id >= MAX_SYSCALL_NUM {
+            return 0;
+        }
+        let inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.syscall_times[current][syscall_id]
+    }
 }
 
 /// Run the first task in task list.
@@ -168,4 +191,14 @@ pub fn suspend_current_and_run_next() {
 pub fn exit_current_and_run_next() {
     mark_current_exited();
     run_next_task();
+}
+
+/// Record one syscall invocation for current task.
+pub fn record_current_syscall(syscall_id: usize) {
+    TASK_MANAGER.record_current_syscall(syscall_id);
+}
+
+/// Get syscall invocation times of current task.
+pub fn get_current_syscall_times(syscall_id: usize) -> usize {
+    TASK_MANAGER.get_current_syscall_times(syscall_id)
 }
